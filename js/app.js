@@ -18,11 +18,10 @@ function el(tag, cls) { const e = document.createElement(tag); if (cls) e.classN
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function fmtTime(ts) { const d = new Date(ts); return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0"); }
 function root() { return document.getElementById("app"); }
-function toast(msg, silent) {
+function toast(msg) {
   const t = el("div", "toast"); t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2800);
-  if (!silent) SFX.play("notify");
 }
 
 document.addEventListener("DOMContentLoaded", boot0);
@@ -70,7 +69,7 @@ function renderLoginForm() {
       const user = await loginUser($("#li-user").value, $("#li-pass").value);
       saveSession(user.username);
       await boot(user);
-    } catch (e) { $("#li-err").textContent = e.message; SFX.play("error"); }
+    } catch (e) { $("#li-err").textContent = e.message; }
   };
 }
 function renderRegisterForm() {
@@ -99,7 +98,7 @@ function renderRegisterForm() {
       saveSession(user.username);
       toast("Cuenta creada. Tu código: " + user.code);
       await boot(user);
-    } catch (e) { $("#re-err").textContent = e.message; SFX.play("error"); }
+    } catch (e) { $("#re-err").textContent = e.message; }
   };
 }
 
@@ -171,7 +170,6 @@ async function handleIncoming(payload) {
       await idbPut("contacts", { id: App.me.username + "::" + payload.from, owner: App.me.username, contact: payload.from, addedAt: Date.now() });
       App.contacts.push(payload.from);
     }
-    SFX.play("receive");
     onConvUpdated(convId);
     return;
   }
@@ -184,7 +182,6 @@ async function handleIncoming(payload) {
       uid: payload.uid, convId, from: payload.from, to: payload.groupId,
       kind: "group", type: payload.type, content: payload.content, ts: payload.ts, deletedFor: []
     });
-    SFX.play("receive");
     onConvUpdated(convId);
     return;
   }
@@ -224,7 +221,6 @@ async function handleIncoming(payload) {
     if (payload.audience === "contacts" && !App.contacts.includes(payload.from)) return;
     if (App.blocks.includes(payload.from)) return;
     await idbPut("statuses", { username: payload.from, type: payload.type, content: payload.content, ts: payload.ts, uid: payload.uid });
-    SFX.play("notify");
     if (App.view === "status") renderStatusTab();
     return;
   }
@@ -257,7 +253,6 @@ function renderShell() {
           <button class="side-tab on" data-v="chats" title="Chats">💬</button>
           <button class="side-tab" data-v="status" title="Estados">🟢</button>
           ${App.me.role === "admin" ? `<button class="side-tab" data-v="admin" title="Admin">🛡️</button>` : ""}
-          <button class="side-tab" data-v="settings" title="Ajustes">⚙️</button>
         </div>
         <button class="icon-btn" id="btn-logout" title="Cerrar sesión">⏻</button>
       </div>
@@ -274,7 +269,7 @@ function renderShell() {
 
   document.querySelectorAll(".side-tab").forEach(b => b.onclick = () => switchView(b.dataset.v));
   $("#btn-logout").onclick = () => { if (confirm("¿Cerrar sesión?")) logout(); };
-  $("#me-avatar-btn").onclick = () => switchView("settings");
+  $("#me-avatar-btn").onclick = openProfileModal;
   switchView("chats");
 }
 
@@ -294,7 +289,6 @@ function switchView(v) {
   if (v === "chats") renderChatList();
   if (v === "status") renderStatusTab();
   if (v === "admin") renderAdminTab();
-  if (v === "settings") renderSettingsTab();
   $("#conv-pane").innerHTML = `<div class="conv-empty"><img src="${ICON}"><h2>MikuChat</h2><p>Selecciona un chat, un grupo o mira los estados 🎵</p></div>`;
 }
 
@@ -380,10 +374,8 @@ async function renderConvHeader() {
   pane.innerHTML = `
     <div class="conv-header">
       <button class="icon-btn only-mobile" id="btn-back">←</button>
-      <div class="conv-header-id" id="conv-header-id" style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer">
-        ${avatarHtml(avatarObj, 38)}
-        <div class="conv-header-mid"><b>${esc(title)}</b><small>${esc(sub)}</small></div>
-      </div>
+      ${avatarHtml(avatarObj, 38)}
+      <div class="conv-header-mid"><b>${esc(title)}</b><small>${esc(sub)}</small></div>
       ${menuHtml}
     </div>
     <div class="messages" id="messages"></div>
@@ -391,10 +383,6 @@ async function renderConvHeader() {
   $("#btn-back").onclick = () => { App.openConv = null; root().querySelector(".shell")?.classList.remove("show-conv"); if (App.view === "chats") renderChatList(); };
   if ($("#btn-block")) $("#btn-block").onclick = () => toggleBlock(App.openConv.user);
   if ($("#btn-group-info")) $("#btn-group-info").onclick = openGroupInfoModal;
-  $("#conv-header-id").onclick = () => {
-    if (App.openConv.kind === "dm") openViewProfile(App.openConv.user);
-    else openGroupInfoModal();
-  };
   renderComposer();
 }
 
@@ -497,7 +485,6 @@ async function sendMessage(type, content) {
     m.to = other; m.kind = "dm";
     await idbPut("messages", m);
     renderMessages();
-    SFX.play("send");
     if (other !== App.me.username) {
       const delivered = await Net.sendTo(other, { t: "dm", uid: m.uid, from: App.me.username, type, content, ts: m.ts });
       if (!delivered) queuePending(other, { t: "dm", uid: m.uid, from: App.me.username, type, content, ts: m.ts });
@@ -507,7 +494,6 @@ async function sendMessage(type, content) {
     m.convId = "group:" + g.id; m.to = g.id; m.kind = "group";
     await idbPut("messages", m);
     renderMessages();
-    SFX.play("send");
     g.members.filter(x => x !== App.me.username).forEach(async (member) => {
       const delivered = await Net.sendTo(member, { t: "group-msg", uid: m.uid, groupId: g.id, from: App.me.username, type, content, ts: m.ts });
       if (!delivered) queuePending(member, { t: "group-msg", uid: m.uid, groupId: g.id, from: App.me.username, type, content, ts: m.ts });
@@ -608,8 +594,8 @@ async function openGroupInfoModal() {
   openModal(`
     <div class="modal-card">
       <h2>👥 ${esc(g.name)}</h2>
-      <div class="hint">Integrantes (toca un nombre para ver su perfil):</div>
-      <div class="check-list">${g.members.map(m => `<div class="member-row" data-u="${esc(m)}" style="cursor:pointer">${esc(m)} ${m === g.owner ? "👑" : ""}</div>`).join("")}</div>
+      <div class="hint">Integrantes:</div>
+      <div class="check-list">${g.members.map(m => `<div>${esc(m)} ${m === g.owner ? "👑" : ""}</div>`).join("")}</div>
       ${isOwner ? `
       <div class="field"><label>Agregar integrante (de tus contactos)</label>
         <select id="gi-add"><option value="">-- elegir --</option>${App.contacts.filter(c => !g.members.includes(c)).map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
@@ -617,7 +603,6 @@ async function openGroupInfoModal() {
       <button class="btn ghost" id="gi-close" style="width:100%;margin-top:8px">Cerrar</button>
     </div>`);
   $("#gi-close").onclick = closeModal;
-  document.querySelectorAll(".member-row").forEach(r => r.onclick = () => openViewProfile(r.dataset.u));
   if (isOwner && $("#gi-add-go")) {
     $("#gi-add-go").onclick = async () => {
       const val = $("#gi-add").value; if (!val) return;
@@ -644,93 +629,33 @@ async function toggleBlock(username) {
   renderConvHeader();
 }
 
-/* ================= VER PERFIL (de cualquier usuario) ================= */
-async function openViewProfile(username) {
-  const u = username === App.me.username ? App.me : (await idbGet("users", username)) || { username, bio: "" };
-  const online = username !== App.me.username ? (Net.isOnline(username) ? "🟢 en línea" : "⚪ desconectado") : "";
+/* ================= PERFIL ================= */
+function openProfileModal() {
   openModal(`
-    <div class="modal-card" style="text-align:center">
-      <div style="margin:0 auto 10px;width:fit-content">${avatarHtml(u, 96)}</div>
-      <h2 style="margin-bottom:2px">${esc(u.username)}${u.role === "admin" ? " ✔️" : ""}</h2>
-      <div class="hint" style="margin-bottom:10px">${online}</div>
-      <p style="color:var(--text-dim)">${esc(u.bio || "Sin biografía")}</p>
-      <button class="btn ghost" id="vp-close" style="width:100%;margin-top:10px">Cerrar</button>
-    </div>`);
-  $("#vp-close").onclick = closeModal;
-}
-
-/* ================= AJUSTES (perfil editable, contraseña, sonido, bloqueados) ================= */
-async function renderSettingsTab() {
-  const body = $("#side-body"); if (!body) return;
-  body.innerHTML = `
-    <div class="settings-wrap">
-      <div class="settings-profile">
-        <div id="set-avatar">${avatarHtml(App.me, 90)}</div>
-        <button class="btn small secondary" id="set-photo-btn">📷 Cambiar foto</button>
-        <input type="file" id="set-photo-file" accept="image/*" style="display:none">
-      </div>
-
+    <div class="modal-card">
+      <h2>Mi perfil</h2>
+      <div style="text-align:center">${avatarHtml(App.me, 90)}</div>
+      <button class="btn small secondary" id="pf-photo-btn" style="width:100%;margin-top:8px">📷 Cambiar foto</button>
+      <input type="file" id="pf-photo-file" accept="image/*" style="display:none">
       <div class="field"><label>Usuario</label><input value="${esc(App.me.username)}" disabled></div>
-      <div class="field"><label>Bio</label><input id="set-bio" value="${esc(App.me.bio || "")}" maxlength="60"></div>
+      <div class="field"><label>Bio</label><input id="pf-bio" value="${esc(App.me.bio || "")}" maxlength="60"></div>
       <div class="field"><label>Tu código</label><input value="${esc(App.me.code)}" disabled></div>
-      <button class="btn small" id="set-save-bio" style="width:100%">Guardar perfil</button>
-
-      <hr class="settings-sep">
-      <h3>🔒 Cambiar contraseña</h3>
-      <div class="field"><input id="set-pass-old" type="password" placeholder="Contraseña actual"></div>
-      <div class="field"><input id="set-pass-new" type="password" placeholder="Nueva contraseña (mín. 4)"></div>
-      <button class="btn small" id="set-pass-go" style="width:100%">Actualizar contraseña</button>
-
-      <hr class="settings-sep">
-      <h3>🔊 Sonidos</h3>
-      <label class="switch-row"><input type="checkbox" id="set-sound" ${SFX.isMuted() ? "" : "checked"}> Sonidos de la app activados</label>
-
-      <hr class="settings-sep">
-      <h3>🚫 Contactos bloqueados</h3>
-      <div id="set-blocked">${App.blocks.length
-        ? App.blocks.map(b => `<div class="chat-row" style="cursor:default"><b style="flex:1">${esc(b)}</b><button class="btn small" data-u="${esc(b)}">Desbloquear</button></div>`).join("")
-        : `<div class="hint" style="padding:6px 0">No tienes contactos bloqueados</div>`}</div>
-
-      <hr class="settings-sep">
-      <button class="btn ghost" id="set-logout" style="width:100%">⏻ Cerrar sesión</button>
-    </div>`;
-
-  $("#set-photo-btn").onclick = () => $("#set-photo-file").click();
-  $("#set-photo-file").onchange = async (e) => {
+      <button class="btn" id="pf-save" style="width:100%">Guardar</button>
+      <button class="btn ghost" id="pf-close" style="width:100%;margin-top:8px">Cerrar</button>
+    </div>`);
+  $("#pf-close").onclick = closeModal;
+  $("#pf-photo-btn").onclick = () => $("#pf-photo-file").click();
+  $("#pf-photo-file").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     App.me.photo = await fileToSquareDataUrl(f, 160);
     await idbPut("users", App.me);
-    $("#set-avatar").innerHTML = avatarHtml(App.me, 90);
-    const meBtn = $("#me-avatar-btn"); if (meBtn) meBtn.innerHTML = avatarHtml(App.me);
-    toast("Foto actualizada");
+    closeModal(); openProfileModal(); renderShell();
   };
-  $("#set-save-bio").onclick = async () => {
-    App.me.bio = $("#set-bio").value.trim();
+  $("#pf-save").onclick = async () => {
+    App.me.bio = $("#pf-bio").value.trim();
     await idbPut("users", App.me);
-    toast("Perfil actualizado");
+    closeModal(); toast("Perfil actualizado");
   };
-  $("#set-pass-go").onclick = async () => {
-    const oldP = $("#set-pass-old").value, newP = $("#set-pass-new").value;
-    if (!newP || newP.length < 4) { toast("La nueva contraseña debe tener al menos 4 caracteres"); SFX.play("error"); return; }
-    const oldHash = await hashPass(oldP);
-    if (oldHash !== App.me.passHash) { toast("Contraseña actual incorrecta ❌"); SFX.play("error"); return; }
-    App.me.passHash = await hashPass(newP);
-    await idbPut("users", App.me);
-    $("#set-pass-old").value = ""; $("#set-pass-new").value = "";
-    toast("Contraseña actualizada ✅");
-  };
-  $("#set-sound").onchange = (e) => {
-    SFX.setMuted(!e.target.checked);
-    if (e.target.checked) SFX.play("toggle");
-  };
-  $("#set-blocked").querySelectorAll("button[data-u]").forEach(b => b.onclick = async () => {
-    const u = b.dataset.u;
-    await idbDelete("blocks", App.me.username + "::" + u);
-    App.blocks = App.blocks.filter(x => x !== u);
-    toast("Desbloqueaste a " + u);
-    renderSettingsTab();
-  });
-  $("#set-logout").onclick = () => { if (confirm("¿Cerrar sesión?")) logout(); };
 }
 
 /* ================= ESTADOS ================= */
@@ -831,11 +756,10 @@ async function renderAdminTab() {
           <button class="icon-btn sm" data-a="role" title="Alternar admin">🛡️</button>
           <button class="icon-btn sm" data-a="ban" title="Bloquear/Desbloquear cuenta">${u.blockedGlobally ? "✅" : "🚫"}</button>` : "<i>tú</i>"}
       </div>`;
-    row.onclick = () => openViewProfile(u.username);
     const roleBtn = row.querySelector('[data-a="role"]');
-    if (roleBtn) roleBtn.onclick = async (e) => { e.stopPropagation(); u.role = u.role === "admin" ? "user" : "admin"; await idbPut("users", u); renderAdminTab(); };
+    if (roleBtn) roleBtn.onclick = async () => { u.role = u.role === "admin" ? "user" : "admin"; await idbPut("users", u); renderAdminTab(); };
     const banBtn = row.querySelector('[data-a="ban"]');
-    if (banBtn) banBtn.onclick = async (e) => { e.stopPropagation(); u.blockedGlobally = !u.blockedGlobally; await idbPut("users", u); renderAdminTab(); };
+    if (banBtn) banBtn.onclick = async () => { u.blockedGlobally = !u.blockedGlobally; await idbPut("users", u); renderAdminTab(); };
     list.appendChild(row);
   });
 }
