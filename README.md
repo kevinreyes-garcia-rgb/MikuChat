@@ -35,3 +35,5 @@ por seguridad, ni siquiera el panel de admin muestra contraseñas de nadie.
   
 ---
 *Basado en la misma idea de red P2P (WebRTC vía PeerJS) usada en MikuQuiz.*
+
+>[V2](https://kevinreyes-garcia-rgb.github.io/MikuChatV2/)
