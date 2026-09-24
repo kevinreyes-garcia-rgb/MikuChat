@@ -15,10 +15,10 @@ navegador con IndexedDB.
 
 ## Cuentas de administrador incluidas
 
-| Usuario        | Contraseña       |
-|----------------|------------------|
-| `k4927789-wq`  | `KellySofia88902`|
-| `Emmanuel`     | `KellySofia88902`|
+| Usuario        |
+|----------------|
+| `k4927789-wq`  |
+| `Emmanuel`     |
 
 Se crean automáticamente la primera vez que se abre la app en un dispositivo.
 Sus contraseñas se guardan **hasheadas (SHA-256)**, nunca en texto plano —
